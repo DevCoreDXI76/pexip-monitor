@@ -33,9 +33,34 @@ const DIAG_ENDPOINTS = [
     hint: "200/302이면 Management Node 확인",
   },
   {
+    endpoint: "/api/",
+    label: "API 루트 (/api/)",
+    hint: "프록시/리라이트 환경에서 API 루트 확인",
+  },
+  {
     endpoint: "/api/admin/",
     label: "Management REST API 루트",
     hint: "200이면 REST API 활성화 확인",
+  },
+  {
+    endpoint: "/admin/api/",
+    label: "대체 API 루트 (/admin/api/)",
+    hint: "일부 환경에서 /admin/api 로 노출",
+  },
+  {
+    endpoint: "/admin/api/admin/",
+    label: "대체 Admin API (/admin/api/admin/)",
+    hint: "리버스 프록시가 /admin 아래로 몰아넣는 경우",
+  },
+  {
+    endpoint: "/api/v1/admin/",
+    label: "대체 Admin API (/api/v1/admin/)",
+    hint: "버전/프록시 설정에 따라 존재할 수 있음",
+  },
+  {
+    endpoint: "/api/admin/v1/",
+    label: "대체 Admin API (/api/admin/v1/)",
+    hint: "버전/프록시 설정에 따라 존재할 수 있음",
   },
   {
     endpoint: "/api/admin/history/conference/",
@@ -186,6 +211,13 @@ export default function ConnectionForm({ onConfigSaved, currentConfig }: Props) 
   }
 
   const isConfigured = !!currentConfig;
+  const suggestedApiBase =
+    (diagResults.find((r) => r.endpoint === "/api/admin/" && r.reachable)?.endpoint && "/api/admin") ||
+    (diagResults.find((r) => r.endpoint === "/admin/api/admin/" && r.reachable)?.endpoint && "/admin/api/admin") ||
+    (diagResults.find((r) => r.endpoint === "/admin/api/" && r.reachable)?.endpoint && "/admin/api") ||
+    (diagResults.find((r) => r.endpoint === "/api/v1/admin/" && r.reachable)?.endpoint && "/api/v1/admin") ||
+    (diagResults.find((r) => r.endpoint === "/api/admin/v1/" && r.reachable)?.endpoint && "/api/admin/v1") ||
+    "";
 
   return (
     <div className="relative">
@@ -287,6 +319,15 @@ export default function ConnectionForm({ onConfigSaved, currentConfig }: Props) 
                       placeholder="/api/admin"
                       className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                    {suggestedApiBase && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomApiBase(suggestedApiBase)}
+                        className="mt-2 w-full text-left text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-2 hover:bg-blue-100 transition-colors"
+                      >
+                        추천 경로 적용: <span className="font-mono">{suggestedApiBase}</span>
+                      </button>
+                    )}
                     <p className="text-xs text-gray-400 mt-1 flex items-start gap-1">
                       <Info size={11} className="mt-0.5 flex-shrink-0" />
                       진단 결과를 보고 정상 동작하는 경로로 변경하세요.
