@@ -14,6 +14,7 @@ interface DiagResult {
   label: string;
   endpoint: string;
   ok: boolean;
+  reachable: boolean;
   status: number;
   message: string;
   hint?: string;
@@ -74,16 +75,21 @@ async function testEndpoint(
       }),
     });
     const data = await res.json();
+    const reachable =
+      (res.status >= 200 && res.status < 400) ||
+      res.status === 401 ||
+      res.status === 403;
     return {
       label, endpoint, hint,
       ok: res.ok,
+      reachable,
       status: res.status,
       message: res.ok
         ? `정상 (총 ${data?.meta?.total_count ?? "?"}건)`
         : (data?.error?.split("\n")[0] ?? `오류 ${res.status}`),
     };
   } catch {
-    return { label, endpoint, hint, ok: false, status: 0, message: "연결 실패" };
+    return { label, endpoint, hint, ok: false, reachable: false, status: 0, message: "연결 실패" };
   }
 }
 
@@ -144,16 +150,22 @@ export default function ConnectionForm({ onConfigSaved, currentConfig }: Props) 
   };
 
   // 진단 결과 해석
-  const webAdminOk = diagResults.find((r) => r.endpoint === "/admin/")?.ok;
-  const apiRootOk = diagResults.find((r) => r.endpoint === "/api/admin/")?.ok;
-  const historyOk = diagResults.find((r) => r.endpoint.includes("history"))?.ok;
-  const statusOk = diagResults.find((r) => r.endpoint.includes("status/conference"))?.ok;
-  const clientApiOk = diagResults.find((r) => r.endpoint.includes("client"))?.ok;
-  const allFail = diagResults.length > 0 && diagResults.every((r) => !r.ok);
+  const webAdmin = diagResults.find((r) => r.endpoint === "/admin/");
+  const apiRoot = diagResults.find((r) => r.endpoint === "/api/admin/");
+  const history = diagResults.find((r) => r.endpoint.includes("history"));
+  const status = diagResults.find((r) => r.endpoint.includes("status/conference"));
+  const clientApi = diagResults.find((r) => r.endpoint.includes("client"));
+
+  const webAdminReachable = webAdmin?.reachable;
+  const apiRootReachable = apiRoot?.reachable;
+  const historyOk = history?.ok;
+  const statusOk = status?.ok;
+  const clientApiReachable = clientApi?.reachable;
+  const allFail = diagResults.length > 0 && diagResults.every((r) => !r.reachable);
 
   // 서버 타입 판정
-  const isMgmtNode = webAdminOk || apiRootOk;
-  const isConfNode = clientApiOk && !apiRootOk;
+  const isMgmtNode = !!(webAdminReachable || apiRootReachable);
+  const isConfNode = !!(clientApiReachable && !apiRootReachable);
 
   let serverTypeMsg = "";
   let serverTypeColor = "";
@@ -367,7 +379,7 @@ export default function ConnectionForm({ onConfigSaved, currentConfig }: Props) 
                     </p>
                   </div>
                 )}
-                {!historyOk && statusOk && apiRootOk && (
+                {!historyOk && statusOk && apiRootReachable && (
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <p className="text-xs text-blue-700">
                       history API 없음 → status API(실시간 회의)로 자동 전환됩니다.
