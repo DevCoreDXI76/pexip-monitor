@@ -77,7 +77,7 @@ export default function HomePage() {
             <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium">데이터 조회 실패</p>
-              <p className="text-sm mt-0.5">{error}</p>
+              <pre className="text-sm mt-0.5 whitespace-pre-wrap break-words font-sans">{error}</pre>
             </div>
             <div className="flex gap-2 flex-shrink-0">
               <button
