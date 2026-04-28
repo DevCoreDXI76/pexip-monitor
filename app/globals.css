@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* react-datepicker 커스텀 스타일 */
+.react-datepicker-wrapper {
+  display: block;
+}
+
+.react-datepicker__input-container input {
+  @apply w-full;
+}
+
+.react-datepicker {
+  @apply border border-gray-200 shadow-xl rounded-xl font-sans text-sm;
+}
+
+.react-datepicker__header {
+  @apply bg-white border-b border-gray-100 rounded-t-xl;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--in-range,
+.react-datepicker__day--range-start,
+.react-datepicker__day--range-end {
+  @apply bg-blue-600 text-white rounded-full;
+}
+
+.react-datepicker__day:hover {
+  @apply bg-blue-50 rounded-full;
+}
+
+.react-datepicker__day--keyboard-selected {
+  @apply bg-blue-100 rounded-full;
+}
+
+/* 스크롤바 스타일 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-50;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
