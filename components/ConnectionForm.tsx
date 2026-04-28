@@ -77,6 +77,11 @@ const DIAG_ENDPOINTS = [
     label: "Client API (Conferencing Node 감지용)",
     hint: "200이면 Conferencing Node",
   },
+  {
+    endpoint: "/api/client/v2/status",
+    label: "Client API 상태 (/api/client/v2/status)",
+    hint: "Conferencing Node 유지보수 모드/상태 확인 (문서)",
+  },
 ];
 
 async function testEndpoint(
