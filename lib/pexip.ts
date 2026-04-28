@@ -1,39 +1,32 @@
 import { format } from "date-fns";
 import type {
   PexipConference,
-  PexipConferenceListResponse,
   PexipParticipant,
-  PexipParticipantListResponse,
   EnrichedConference,
   CompanyStat,
+  DataSource,
+  FetchResult,
 } from "./types";
 
-// 회의 이름에서 회사명을 추출하는 헬퍼
-// Pexip 환경마다 네이밍 규칙이 다르므로 필요에 따라 커스터마이징
 export function extractCompanyFromConference(conference: PexipConference): string {
   const name = conference.name || "";
   const tag = conference.tag || "";
 
-  // 우선순위 1: tag 값이 있으면 사용
   if (tag && tag.trim()) return tag.trim();
 
-  // 우선순위 2: 회의명에서 "@" 앞의 도메인이나 첫 번째 세그먼트 추출
-  // 예: "meetingroom@company.com" -> "company.com"
   if (name.includes("@")) {
     const parts = name.split("@");
     return parts[parts.length - 1].split(".")[0] || name;
   }
 
-  // 우선순위 3: 언더스코어나 하이픈으로 분리된 첫 번째 세그먼트
-  // 예: "CompanyA_Weekly_Standup" -> "CompanyA"
   const separatorMatch = name.match(/^([^_\-]+)/);
   if (separatorMatch) return separatorMatch[1];
 
   return name || "Unknown";
 }
 
-// 초(seconds)를 "Xh Ym" 형식으로 변환
 export function formatDuration(seconds: number): string {
+  if (!seconds || seconds < 0) return "-";
   if (seconds < 60) return `${seconds}s`;
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -41,8 +34,7 @@ export function formatDuration(seconds: number): string {
   return `${m}m`;
 }
 
-// ISO 날짜 문자열을 한국어 형식으로 포맷
-export function formatDateTime(iso: string): string {
+export function formatDateTime(iso?: string): string {
   if (!iso) return "-";
   try {
     return format(new Date(iso), "yyyy-MM-dd HH:mm");
@@ -51,7 +43,7 @@ export function formatDateTime(iso: string): string {
   }
 }
 
-// 프록시 API를 통해 Pexip 데이터를 페이지네이션 처리하며 전량 조회
+// Pexip API를 통해 모든 페이지 데이터를 가져오는 공통 함수
 async function fetchAllPexip<T>(
   pexipUrl: string,
   username: string,
@@ -87,7 +79,10 @@ async function fetchAllPexip<T>(
       throw new Error(err.error || `API 오류: ${res.status}`);
     }
 
-    const data = await res.json() as { meta: { next: string | null; total_count: number }; objects: T[] };
+    const data = await res.json() as {
+      meta: { next: string | null; total_count: number };
+      objects: T[];
+    };
     allItems.push(...data.objects);
 
     if (!data.meta.next || allItems.length >= data.meta.total_count) break;
@@ -97,44 +92,23 @@ async function fetchAllPexip<T>(
   return allItems;
 }
 
-// 날짜 범위에 해당하는 회의 + 참여자 데이터를 조회하고 회사별 통계로 가공
-export async function fetchCompanyStats(
+// 회의 + 참여자를 조회하여 회사별 통계로 집계
+async function buildStats(
   pexipUrl: string,
   username: string,
   password: string,
-  startDate: Date,
-  endDate: Date
+  conferenceEndpoint: string,
+  participantEndpoint: string,
+  conferenceParams: Record<string, string>,
+  participantParams: Record<string, string>
 ): Promise<CompanyStat[]> {
-  const startStr = format(startDate, "yyyy-MM-dd'T'00:00:00");
-  const endStr = format(endDate, "yyyy-MM-dd'T'23:59:59");
-
-  // 1. 기간 내 회의 목록 조회
-  const conferences = await fetchAllPexip<PexipConference>(
-    pexipUrl,
-    username,
-    password,
-    "/api/admin/history/conference/",
-    {
-      start_time__gte: startStr,
-      start_time__lte: endStr,
-    }
-  );
+  const [conferences, participants] = await Promise.all([
+    fetchAllPexip<PexipConference>(pexipUrl, username, password, conferenceEndpoint, conferenceParams),
+    fetchAllPexip<PexipParticipant>(pexipUrl, username, password, participantEndpoint, participantParams).catch(() => [] as PexipParticipant[]),
+  ]);
 
   if (conferences.length === 0) return [];
 
-  // 2. 해당 기간의 참여자 목록 조회
-  const participants = await fetchAllPexip<PexipParticipant>(
-    pexipUrl,
-    username,
-    password,
-    "/api/admin/history/participant/",
-    {
-      connect_time__gte: startStr,
-      connect_time__lte: endStr,
-    }
-  );
-
-  // 3. 참여자를 회의 이름 기준으로 그룹핑
   const participantsByConference = new Map<string, PexipParticipant[]>();
   for (const p of participants) {
     const key = p.conference;
@@ -144,14 +118,12 @@ export async function fetchCompanyStats(
     participantsByConference.get(key)!.push(p);
   }
 
-  // 4. 회의에 참여자 및 회사명 부착
   const enriched: EnrichedConference[] = conferences.map((conf) => ({
     ...conf,
     participants: participantsByConference.get(conf.name) ?? [],
     company: extractCompanyFromConference(conf),
   }));
 
-  // 5. 회사별 집계
   const companyMap = new Map<string, CompanyStat>();
 
   for (const conf of enriched) {
@@ -172,8 +144,62 @@ export async function fetchCompanyStats(
     stat.conferences.push(conf);
   }
 
-  // 회의 수 내림차순 정렬
-  return Array.from(companyMap.values()).sort(
-    (a, b) => b.meetingCount - a.meetingCount
-  );
+  return Array.from(companyMap.values()).sort((a, b) => b.meetingCount - a.meetingCount);
+}
+
+// 메인 함수: history를 먼저 시도, 404시 status로 자동 폴백
+export async function fetchCompanyStats(
+  pexipUrl: string,
+  username: string,
+  password: string,
+  startDate: Date,
+  endDate: Date
+): Promise<FetchResult> {
+  const startStr = format(startDate, "yyyy-MM-dd'T'HH:mm:ss").replace(/T.*/, "T00:00:00");
+  const endStr = format(endDate, "yyyy-MM-dd'T'HH:mm:ss").replace(/T.*/, "T23:59:59");
+
+  // 1차 시도: history 엔드포인트
+  try {
+    const stats = await buildStats(
+      pexipUrl, username, password,
+      "/api/admin/history/conference/",
+      "/api/admin/history/participant/",
+      { start_time__gte: startStr, start_time__lte: endStr },
+      { connect_time__gte: startStr, connect_time__lte: endStr }
+    );
+    return { stats, dataSource: "history", endpointUsed: "/api/admin/history/conference/" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+
+    // history 엔드포인트가 없는 경우 (404), status로 폴백
+    const is404 = msg.includes("404") || msg.includes("찾을 수 없습니다");
+    if (!is404) throw err;
+  }
+
+  // 2차 시도: status 엔드포인트 (현재 활성 회의)
+  try {
+    const stats = await buildStats(
+      pexipUrl, username, password,
+      "/api/admin/status/conference/",
+      "/api/admin/status/participant/",
+      {},
+      {}
+    );
+    return { stats, dataSource: "status", endpointUsed: "/api/admin/status/conference/" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const is404 = msg.includes("404") || msg.includes("찾을 수 없습니다");
+
+    if (is404) {
+      throw new Error(
+        "Pexip REST API에 접근할 수 없습니다.\n\n" +
+        "확인 사항:\n" +
+        "① 입력한 URL이 Management Node인지 확인 (Conferencing Node는 지원 안 됨)\n" +
+        "② Pexip 관리자 계정(super-admin) 권한 확인\n" +
+        "③ Pexip 버전이 v14 이상인지 확인\n\n" +
+        "Management Node URL 예시: https://pexip-mgmt.example.com"
+      );
+    }
+    throw err;
+  }
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { subDays } from "date-fns";
-import { AlertCircle, RefreshCw, Video } from "lucide-react";
+import { AlertCircle, RefreshCw, Video, Clock, History } from "lucide-react";
 import ConnectionForm from "@/components/ConnectionForm";
 import DateRangePicker from "@/components/DateRangePicker";
 import StatsDashboard from "@/components/StatsDashboard";
@@ -14,9 +14,8 @@ export default function HomePage() {
   const [startDate, setStartDate] = useState<Date>(() => subDays(new Date(), 6));
   const [endDate, setEndDate] = useState<Date>(() => new Date());
 
-  const { stats, isLoading, error, fetchData, clearError } = usePexipData();
+  const { stats, dataSource, isLoading, error, fetchData, clearError } = usePexipData();
 
-  // 설정이 저장되면 자동으로 첫 조회
   const handleConfigSaved = useCallback(
     (newConfig: PexipConfig) => {
       setConfig(newConfig);
@@ -36,29 +35,20 @@ export default function HomePage() {
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* 로고 */}
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm">
                 <Video size={18} className="text-white" />
               </div>
               <div>
-                <h1 className="text-base font-bold text-gray-900 leading-none">
-                  Pexip Monitor
-                </h1>
+                <h1 className="text-base font-bold text-gray-900 leading-none">Pexip Monitor</h1>
                 <p className="text-xs text-gray-400 mt-0.5">Teams 회의 통계 대시보드</p>
               </div>
             </div>
-
-            {/* 연결 설정 버튼 */}
-            <ConnectionForm
-              onConfigSaved={handleConfigSaved}
-              currentConfig={config}
-            />
+            <ConnectionForm onConfigSaved={handleConfigSaved} currentConfig={config} />
           </div>
         </div>
       </header>
 
-      {/* 메인 컨텐츠 */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
         {/* 날짜 필터 */}
         <DateRangePicker
@@ -71,13 +61,35 @@ export default function HomePage() {
           isConfigured={!!config}
         />
 
+        {/* 데이터 소스 배너 */}
+        {dataSource && !isLoading && stats.length > 0 && (
+          <div
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm border ${
+              dataSource === "history"
+                ? "bg-blue-50 border-blue-200 text-blue-700"
+                : "bg-amber-50 border-amber-200 text-amber-700"
+            }`}
+          >
+            {dataSource === "history" ? (
+              <History size={15} className="flex-shrink-0" />
+            ) : (
+              <Clock size={15} className="flex-shrink-0" />
+            )}
+            {dataSource === "history"
+              ? "이력 데이터 (history API) 기준으로 조회했습니다."
+              : "history API 미지원 서버 → 현재 활성 회의 (status API) 기준으로 조회했습니다. 날짜 필터는 적용되지 않습니다."}
+          </div>
+        )}
+
         {/* 에러 배너 */}
         {error && (
           <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 animate-fade-in">
             <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium">데이터 조회 실패</p>
-              <pre className="text-sm mt-0.5 whitespace-pre-wrap break-words font-sans">{error}</pre>
+              <pre className="text-sm mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">
+                {error}
+              </pre>
             </div>
             <div className="flex gap-2 flex-shrink-0">
               <button
@@ -98,18 +110,16 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* 안내 메시지 (미설정 상태) */}
+        {/* 미설정 안내 */}
         {!config && !isLoading && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center mb-4">
               <Video size={32} className="text-blue-500" />
             </div>
-            <h2 className="text-lg font-semibold text-gray-700 mb-2">
-              Pexip 연결 설정이 필요합니다
-            </h2>
+            <h2 className="text-lg font-semibold text-gray-700 mb-2">Pexip 연결 설정이 필요합니다</h2>
             <p className="text-sm text-gray-400 max-w-sm">
               우측 상단의 <strong>Pexip 연결 설정</strong> 버튼을 클릭하여
-              Management Node의 URL, 계정 정보를 입력하세요.
+              Management Node URL과 계정 정보를 입력하세요.
             </p>
           </div>
         )}
@@ -120,7 +130,6 @@ export default function HomePage() {
         )}
       </main>
 
-      {/* 푸터 */}
       <footer className="mt-12 pb-6 text-center text-xs text-gray-300">
         Pexip Monitor · Powered by Next.js &amp; Pexip REST API
       </footer>

@@ -2,10 +2,11 @@
 
 import { useState, useCallback } from "react";
 import { fetchCompanyStats } from "@/lib/pexip";
-import type { CompanyStat, PexipConfig } from "@/lib/types";
+import type { CompanyStat, DataSource, PexipConfig } from "@/lib/types";
 
 interface UsePexipDataReturn {
   stats: CompanyStat[];
+  dataSource: DataSource | null;
   isLoading: boolean;
   error: string | null;
   fetchData: (config: PexipConfig, startDate: Date, endDate: Date) => Promise<void>;
@@ -14,6 +15,7 @@ interface UsePexipDataReturn {
 
 export function usePexipData(): UsePexipDataReturn {
   const [stats, setStats] = useState<CompanyStat[]>([]);
+  const [dataSource, setDataSource] = useState<DataSource | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,12 +31,14 @@ export function usePexipData(): UsePexipDataReturn {
           startDate,
           endDate
         );
-        setStats(result);
+        setStats(result.stats);
+        setDataSource(result.dataSource);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "데이터 조회 중 오류가 발생했습니다.";
         setError(message);
         setStats([]);
+        setDataSource(null);
       } finally {
         setIsLoading(false);
       }
@@ -44,5 +48,5 @@ export function usePexipData(): UsePexipDataReturn {
 
   const clearError = useCallback(() => setError(null), []);
 
-  return { stats, isLoading, error, fetchData, clearError };
+  return { stats, dataSource, isLoading, error, fetchData, clearError };
 }

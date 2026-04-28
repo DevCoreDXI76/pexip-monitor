@@ -5,16 +5,17 @@ export interface PexipConfig {
   password: string;
 }
 
-// Pexip /api/admin/history/conference/ 응답 항목
+// Pexip /api/admin/history/conference/ 또는 /api/admin/status/conference/ 응답 항목
+// status 엔드포인트는 end_time, duration 없음 (진행 중인 회의)
 export interface PexipConference {
   id: string;
   name: string;
   tag: string;
-  start_time: string;       // ISO 8601
-  end_time: string;         // ISO 8601
-  duration: number;         // 초(seconds)
+  start_time: string;           // ISO 8601
+  end_time?: string;            // history만 존재
+  duration?: number;            // history만 존재 (초)
   participant_count: number;
-  service_type: string;     // "conference" | "gateway" | "lecture" | "two_stage_dialing"
+  service_type: string;
   resource_uri: string;
 }
 
@@ -29,19 +30,20 @@ export interface PexipConferenceListResponse {
   objects: PexipConference[];
 }
 
-// Pexip /api/admin/history/participant/ 응답 항목
+// Pexip /api/admin/history/participant/ 또는 /api/admin/status/participant/ 응답 항목
+// status 엔드포인트는 disconnect_time, duration 없음 (연결 중인 참여자)
 export interface PexipParticipant {
   id: string;
   display_name: string;
   role: "chair" | "guest" | "unknown";
   protocol: "WebRTC" | "SIP" | "H.323" | "RTMP" | "Skype" | "API" | "Teams" | string;
-  connect_time: string;     // ISO 8601
-  disconnect_time: string;  // ISO 8601
-  duration: number;
-  conference: string;       // conference name
-  call_quality: number | null;
+  connect_time: string;         // ISO 8601
+  disconnect_time?: string;     // history만 존재
+  duration?: number;            // history만 존재
+  conference: string;
+  call_quality?: number | null;
   remote_address: string;
-  bandwidth: number;
+  bandwidth?: number;
   resource_uri: string;
 }
 
@@ -56,6 +58,9 @@ export interface PexipParticipantListResponse {
   objects: PexipParticipant[];
 }
 
+// 데이터 소스 구분
+export type DataSource = "history" | "status";
+
 // 가공된 회의 데이터 (참여자 포함)
 export interface EnrichedConference extends PexipConference {
   participants: PexipParticipant[];
@@ -69,6 +74,13 @@ export interface CompanyStat {
   totalDuration: number;      // 초
   totalParticipants: number;
   conferences: EnrichedConference[];
+}
+
+// 조회 결과 (데이터 소스 정보 포함)
+export interface FetchResult {
+  stats: CompanyStat[];
+  dataSource: DataSource;
+  endpointUsed: string;
 }
 
 // API Route로 전달하는 요청 바디
