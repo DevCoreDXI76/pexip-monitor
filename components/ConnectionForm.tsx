@@ -27,9 +27,14 @@ interface Props {
 // 진단할 엔드포인트 목록
 const DIAG_ENDPOINTS = [
   {
+    endpoint: "/admin/",
+    label: "Web Admin 접근 (Management Node 여부)",
+    hint: "200/302이면 Management Node 확인",
+  },
+  {
     endpoint: "/api/admin/",
-    label: "Management API 루트",
-    hint: "200이면 Management Node 확인됨",
+    label: "Management REST API 루트",
+    hint: "200이면 REST API 활성화 확인",
   },
   {
     endpoint: "/api/admin/history/conference/",
@@ -42,14 +47,9 @@ const DIAG_ENDPOINTS = [
     hint: "200이면 실시간 데이터 조회 가능",
   },
   {
-    endpoint: "/api/admin/configuration/conference/",
-    label: "VMR 설정 API",
-    hint: "200이면 VMR 목록 조회 가능",
-  },
-  {
     endpoint: "/api/client/v2/",
-    label: "Client API (v2)",
-    hint: "200이면 Conferencing Node (관리 API 없음)",
+    label: "Client API (Conferencing Node 감지용)",
+    hint: "200이면 Conferencing Node",
   },
 ];
 
@@ -144,23 +144,31 @@ export default function ConnectionForm({ onConfigSaved, currentConfig }: Props) 
   };
 
   // 진단 결과 해석
+  const webAdminOk = diagResults.find((r) => r.endpoint === "/admin/")?.ok;
   const apiRootOk = diagResults.find((r) => r.endpoint === "/api/admin/")?.ok;
   const historyOk = diagResults.find((r) => r.endpoint.includes("history"))?.ok;
   const statusOk = diagResults.find((r) => r.endpoint.includes("status/conference"))?.ok;
   const clientApiOk = diagResults.find((r) => r.endpoint.includes("client"))?.ok;
   const allFail = diagResults.length > 0 && diagResults.every((r) => !r.ok);
 
+  // 서버 타입 판정
+  const isMgmtNode = webAdminOk || apiRootOk;
+  const isConfNode = clientApiOk && !apiRootOk;
+
   let serverTypeMsg = "";
   let serverTypeColor = "";
   if (diagResults.length > 0) {
-    if (apiRootOk) {
-      serverTypeMsg = "✓ Management Node 확인됨";
+    if (isMgmtNode && (historyOk || statusOk)) {
+      serverTypeMsg = "✓ Management Node 정상 — 저장 후 조회하세요";
       serverTypeColor = "text-green-700 bg-green-50 border-green-200";
-    } else if (clientApiOk) {
-      serverTypeMsg = "⚠ Conferencing Node로 보임 → Management Node URL이 필요합니다";
+    } else if (isMgmtNode) {
+      serverTypeMsg = "⚠ Management Node이나 데이터 API 없음 — 권한·버전 확인 필요";
       serverTypeColor = "text-amber-700 bg-amber-50 border-amber-200";
+    } else if (isConfNode) {
+      serverTypeMsg = "✗ Conferencing Node 감지 — Management Node URL로 변경 필요";
+      serverTypeColor = "text-red-700 bg-red-50 border-red-200";
     } else if (allFail) {
-      serverTypeMsg = "✗ API 접근 불가 → URL·계정·네트워크를 확인하세요";
+      serverTypeMsg = "✗ 모든 API 접근 실패 — URL·계정·네트워크를 확인하세요";
       serverTypeColor = "text-red-700 bg-red-50 border-red-200";
     }
   }
@@ -327,20 +335,35 @@ export default function ConnectionForm({ onConfigSaved, currentConfig }: Props) 
                 </div>
 
                 {/* 안내 메시지 */}
-                {clientApiOk && !apiRootOk && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <p className="text-xs text-amber-800 font-semibold mb-1">Conferencing Node 감지됨</p>
-                    <p className="text-xs text-amber-700">
-                      이 서버는 회의 처리용 서버입니다. Pexip 관리자에게 문의하여
-                      <strong> Management Node의 URL</strong>을 확인하세요.
-                      (일반적으로 별도의 호스트명/IP를 가집니다.)
+                {isConfNode && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-1">
+                    <p className="text-xs text-red-800 font-semibold">Conferencing Node 감지됨</p>
+                    <p className="text-xs text-red-700">
+                      이 서버는 회의 처리 전용입니다. 관리 API가 없습니다.
                     </p>
+                    <p className="text-xs text-red-700 font-medium mt-1">해결 방법:</p>
+                    <ul className="text-xs text-red-700 space-y-0.5 list-disc list-inside">
+                      <li>Pexip 관리자에게 Management Node URL 확인</li>
+                      <li>Management Node가 내부망에만 있다면 → 앱을 로컬에서 실행</li>
+                    </ul>
+                  </div>
+                )}
+                {allFail && !isConfNode && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-1">
+                    <p className="text-xs text-red-800 font-semibold">접근 불가</p>
+                    <p className="text-xs text-red-700">
+                      Management Node가 내부망(방화벽 안)에 있으면 Vercel에서는 접근이 불가합니다.
+                    </p>
+                    <p className="text-xs text-red-700 font-medium">→ 로컬에서 실행하세요:</p>
+                    <code className="block text-xs bg-red-100 rounded p-1.5 text-red-800 font-mono">
+                      npm run dev
+                    </code>
                   </div>
                 )}
                 {historyOk && (
                   <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <p className="text-xs text-green-700">
-                      ✓ 회의 이력 API 정상 확인. 저장 및 적용 후 조회하세요.
+                    <p className="text-xs text-green-700 font-medium">
+                      ✓ 회의 이력 API 정상 — 저장 및 적용 후 조회하세요.
                     </p>
                   </div>
                 )}
@@ -348,7 +371,6 @@ export default function ConnectionForm({ onConfigSaved, currentConfig }: Props) 
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <p className="text-xs text-blue-700">
                       history API 없음 → status API(실시간 회의)로 자동 전환됩니다.
-                      저장 및 적용 후 조회하세요.
                     </p>
                   </div>
                 )}

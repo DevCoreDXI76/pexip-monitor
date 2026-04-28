@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { subDays } from "date-fns";
-import { AlertCircle, RefreshCw, Video, Clock, History } from "lucide-react";
+import { AlertCircle, RefreshCw, Video, Clock, History, Terminal, Network } from "lucide-react";
 import ConnectionForm from "@/components/ConnectionForm";
 import DateRangePicker from "@/components/DateRangePicker";
 import StatsDashboard from "@/components/StatsDashboard";
@@ -83,29 +83,67 @@ export default function HomePage() {
 
         {/* 에러 배너 */}
         {error && (
-          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 animate-fade-in">
-            <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">데이터 조회 실패</p>
-              <pre className="text-sm mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">
-                {error}
-              </pre>
+          <div className="space-y-3 animate-fade-in">
+            {/* 에러 메시지 */}
+            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
+              <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">데이터 조회 실패</p>
+                <pre className="text-sm mt-1 whitespace-pre-wrap break-words font-sans leading-relaxed">
+                  {error}
+                </pre>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  onClick={handleSearch}
+                  disabled={isLoading || !config}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
+                >
+                  <RefreshCw size={12} />
+                  재시도
+                </button>
+                <button
+                  onClick={clearError}
+                  className="px-3 py-1.5 text-xs font-medium bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
+                >
+                  닫기
+                </button>
+              </div>
             </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button
-                onClick={handleSearch}
-                disabled={isLoading || !config}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
-              >
-                <RefreshCw size={12} />
-                재시도
-              </button>
-              <button
-                onClick={clearError}
-                className="px-3 py-1.5 text-xs font-medium bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
-              >
-                닫기
-              </button>
+
+            {/* 해결 방법 안내 카드 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Step 1: 연결 진단 */}
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">1</div>
+                  <p className="text-sm font-semibold text-gray-800">연결 진단 실행</p>
+                </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  우측 상단 <strong>연결 설정 버튼</strong> → <strong>연결 진단</strong> 클릭
+                </p>
+                <div className="bg-gray-50 rounded-lg p-2 text-xs text-gray-600 space-y-1">
+                  <p>✓ Web Admin 접근 가능 → Management Node</p>
+                  <p>✓ Client API만 가능 → Conferencing Node</p>
+                  <p>✗ 전부 실패 → 내부망 전용 서버</p>
+                </div>
+              </div>
+
+              {/* Step 2: 로컬 실행 */}
+              <div className="bg-white border border-amber-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">2</div>
+                  <p className="text-sm font-semibold text-gray-800">내부망이면 로컬 실행</p>
+                </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  Pexip Management Node가 내부망에 있다면 이 앱을 같은 네트워크에서 실행하세요.
+                </p>
+                <div className="bg-gray-900 rounded-lg p-2 space-y-1">
+                  <p className="text-xs text-gray-400 font-mono"># 프로젝트 폴더에서:</p>
+                  <p className="text-xs text-green-400 font-mono">npm run dev</p>
+                  <p className="text-xs text-gray-400 font-mono"># → http://localhost:3000</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
