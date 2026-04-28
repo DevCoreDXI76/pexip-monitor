@@ -29,7 +29,8 @@ export function usePexipData(): UsePexipDataReturn {
           config.username,
           config.password,
           startDate,
-          endDate
+          endDate,
+          config.customApiBase
         );
         setStats(result.stats);
         setDataSource(result.dataSource);

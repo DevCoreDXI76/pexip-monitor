@@ -147,31 +147,33 @@ async function buildStats(
   return Array.from(companyMap.values()).sort((a, b) => b.meetingCount - a.meetingCount);
 }
 
-// 메인 함수: history를 먼저 시도, 404시 status로 자동 폴백
+// 메인 함수: history → status 순으로 자동 폴백, 커스텀 API 기본 경로 지원
 export async function fetchCompanyStats(
   pexipUrl: string,
   username: string,
   password: string,
   startDate: Date,
-  endDate: Date
+  endDate: Date,
+  customApiBase?: string
 ): Promise<FetchResult> {
-  const startStr = format(startDate, "yyyy-MM-dd'T'HH:mm:ss").replace(/T.*/, "T00:00:00");
-  const endStr = format(endDate, "yyyy-MM-dd'T'HH:mm:ss").replace(/T.*/, "T23:59:59");
+  const startStr = format(startDate, "yyyy-MM-dd") + "T00:00:00";
+  const endStr = format(endDate, "yyyy-MM-dd") + "T23:59:59";
+
+  // API 기본 경로 결정 (커스텀 우선, 기본은 /api/admin)
+  const apiBase = (customApiBase ?? "/api/admin").replace(/\/$/, "");
 
   // 1차 시도: history 엔드포인트
   try {
     const stats = await buildStats(
       pexipUrl, username, password,
-      "/api/admin/history/conference/",
-      "/api/admin/history/participant/",
+      `${apiBase}/history/conference/`,
+      `${apiBase}/history/participant/`,
       { start_time__gte: startStr, start_time__lte: endStr },
       { connect_time__gte: startStr, connect_time__lte: endStr }
     );
-    return { stats, dataSource: "history", endpointUsed: "/api/admin/history/conference/" };
+    return { stats, dataSource: "history", endpointUsed: `${apiBase}/history/conference/` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-
-    // history 엔드포인트가 없는 경우 (404), status로 폴백
     const is404 = msg.includes("404") || msg.includes("찾을 수 없습니다");
     if (!is404) throw err;
   }
@@ -180,24 +182,24 @@ export async function fetchCompanyStats(
   try {
     const stats = await buildStats(
       pexipUrl, username, password,
-      "/api/admin/status/conference/",
-      "/api/admin/status/participant/",
+      `${apiBase}/status/conference/`,
+      `${apiBase}/status/participant/`,
       {},
       {}
     );
-    return { stats, dataSource: "status", endpointUsed: "/api/admin/status/conference/" };
+    return { stats, dataSource: "status", endpointUsed: `${apiBase}/status/conference/` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const is404 = msg.includes("404") || msg.includes("찾을 수 없습니다");
 
     if (is404) {
       throw new Error(
-        "Pexip REST API에 접근할 수 없습니다.\n\n" +
+        `Pexip REST API에 접근할 수 없습니다 (API 경로: ${apiBase}).\n\n` +
         "확인 사항:\n" +
-        "① 입력한 URL이 Management Node인지 확인 (Conferencing Node는 지원 안 됨)\n" +
-        "② Pexip 관리자 계정(super-admin) 권한 확인\n" +
-        "③ Pexip 버전이 v14 이상인지 확인\n\n" +
-        "Management Node URL 예시: https://pexip-mgmt.example.com"
+        "① 연결 설정 → '연결 진단'을 눌러 어떤 엔드포인트가 동작하는지 확인하세요\n" +
+        "② 입력한 URL이 Management Node인지 확인 (Conferencing Node는 관리 API 없음)\n" +
+        "③ Pexip 관리자 계정(super-admin) 권한 확인\n" +
+        "④ API 경로가 다른 경우 '고급 설정 > 커스텀 API 경로'를 사용하세요"
       );
     }
     throw err;

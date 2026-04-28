@@ -1,8 +1,9 @@
 // Pexip 접속 설정
 export interface PexipConfig {
-  url: string;        // e.g. https://pexip.example.com
+  url: string;              // e.g. https://pexip.example.com
   username: string;
   password: string;
+  customApiBase?: string;   // 커스텀 API 기본 경로 (기본: /api/admin)
 }
 
 // Pexip /api/admin/history/conference/ 또는 /api/admin/status/conference/ 응답 항목
