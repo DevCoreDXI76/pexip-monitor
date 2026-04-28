@@ -8,6 +8,17 @@ import type {
   FetchResult,
 } from "./types";
 
+function toUtcIsoRange(date: Date, kind: "start" | "end"): string {
+  const d = new Date(date);
+  if (kind === "start") {
+    d.setUTCHours(0, 0, 0, 0);
+  } else {
+    d.setUTCHours(23, 59, 59, 999);
+  }
+  // Pexip 예시처럼 Z(UTC) 포함 형식으로 전송
+  return d.toISOString().replace(".999Z", "Z");
+}
+
 export function extractCompanyFromConference(conference: PexipConference): string {
   const name = conference.name || "";
   const tag = conference.tag || "";
@@ -53,10 +64,11 @@ async function fetchAllPexip<T>(
 ): Promise<T[]> {
   const allItems: T[] = [];
   let offset = 0;
-  const limit = 100;
+  const limit = 1000;
 
   while (true) {
     const queryParams = new URLSearchParams({
+      format: "json",
       ...params,
       limit: String(limit),
       offset: String(offset),
@@ -112,15 +124,18 @@ async function buildStats(
   const participantsByConference = new Map<string, PexipParticipant[]>();
   for (const p of participants) {
     const key = p.conference;
-    if (!participantsByConference.has(key)) {
-      participantsByConference.set(key, []);
-    }
+    if (!key) continue;
+    if (!participantsByConference.has(key)) participantsByConference.set(key, []);
     participantsByConference.get(key)!.push(p);
   }
 
   const enriched: EnrichedConference[] = conferences.map((conf) => ({
     ...conf,
-    participants: participantsByConference.get(conf.name) ?? [],
+    // Pexip 버전/환경별로 participant.conference 값이 name 또는 resource_uri일 수 있어 둘 다 매칭
+    participants:
+      participantsByConference.get(conf.resource_uri) ??
+      participantsByConference.get(conf.name) ??
+      [],
     company: extractCompanyFromConference(conf),
   }));
 
@@ -156,13 +171,30 @@ export async function fetchCompanyStats(
   endDate: Date,
   customApiBase?: string
 ): Promise<FetchResult> {
-  const startStr = format(startDate, "yyyy-MM-dd") + "T00:00:00";
-  const endStr = format(endDate, "yyyy-MM-dd") + "T23:59:59";
+  // history API는 UTC ISO(Z) 형식이 가장 호환성이 좋음
+  const startStr = toUtcIsoRange(startDate, "start");
+  const endStr = toUtcIsoRange(endDate, "end");
 
   // API 기본 경로 결정 (커스텀 우선, 기본은 /api/admin)
   const apiBase = (customApiBase ?? "/api/admin").replace(/\/$/, "");
 
-  // 1차 시도: history 엔드포인트
+  // 1차 시도: history v1 엔드포인트 (최신 경로)
+  try {
+    const stats = await buildStats(
+      pexipUrl, username, password,
+      `${apiBase}/history/v1/conference/`,
+      `${apiBase}/history/v1/participant/`,
+      { start_time__gte: startStr, start_time__lte: endStr },
+      { connect_time__gte: startStr, connect_time__lte: endStr }
+    );
+    return { stats, dataSource: "history", endpointUsed: `${apiBase}/history/v1/conference/` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const is404 = msg.includes("404") || msg.includes("찾을 수 없습니다");
+    if (!is404) throw err;
+  }
+
+  // 2차 시도: history (구버전 경로)
   try {
     const stats = await buildStats(
       pexipUrl, username, password,
@@ -178,7 +210,7 @@ export async function fetchCompanyStats(
     if (!is404) throw err;
   }
 
-  // 2차 시도: status 엔드포인트 (현재 활성 회의)
+  // 3차 시도: status 엔드포인트 (현재 활성 회의)
   try {
     const stats = await buildStats(
       pexipUrl, username, password,
