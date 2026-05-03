@@ -15,12 +15,15 @@ import {
   User,
   Shield,
   Wifi,
+  List,
 } from "lucide-react";
-import { formatDuration, formatDateTime } from "@/lib/pexip";
-import type { CompanyStat, PexipParticipant } from "@/lib/types";
+import { formatDuration, formatDateTime, fetchParticipantsForConference } from "@/lib/pexip";
+import type { CompanyStat, PexipConfig, PexipParticipant } from "@/lib/types";
 
 interface Props {
   stat: CompanyStat;
+  pexipConfig: PexipConfig;
+  conferenceListEndpointUsed: string;
   onClose: () => void;
 }
 
@@ -74,8 +77,45 @@ function ParticipantRow({ participant }: { participant: PexipParticipant }) {
 }
 
 // 회의 1건 아코디언 행
-function ConferenceRow({ conf, index }: { conf: CompanyStat["conferences"][0]; index: number }) {
+function ConferenceRow({
+  conf,
+  index,
+  pexipConfig,
+  conferenceListEndpointUsed,
+}: {
+  conf: CompanyStat["conferences"][0];
+  index: number;
+  pexipConfig: PexipConfig;
+  conferenceListEndpointUsed: string;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const [loadedParticipants, setLoadedParticipants] = useState<PexipParticipant[] | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  const mergedParticipants =
+    conf.participants.length > 0 ? conf.participants : (loadedParticipants ?? []);
+  const canLoadDetail = Boolean(conf.id);
+  const hasNoParticipantRows = conf.participants.length === 0 && mergedParticipants.length === 0;
+  const showLoadDetailUi = hasNoParticipantRows && canLoadDetail;
+
+  async function handleLoadParticipants() {
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      const list = await fetchParticipantsForConference(
+        pexipConfig,
+        conferenceListEndpointUsed,
+        conf.id
+      );
+      setLoadedParticipants(list);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "참가자 조회에 실패했습니다.";
+      setDetailError(msg);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden">
@@ -103,7 +143,7 @@ function ConferenceRow({ conf, index }: { conf: CompanyStat["conferences"][0]; i
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="flex items-center gap-1 text-xs text-gray-500">
             <Users size={12} />
-            {conf.participants.length}명
+            {(conf.participants.length || conf.participant_count)}명
           </span>
           {expanded ? (
             <ChevronUp size={16} className="text-gray-400" />
@@ -114,17 +154,65 @@ function ConferenceRow({ conf, index }: { conf: CompanyStat["conferences"][0]; i
       </button>
 
       {expanded && (
-        <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-3">
-          {conf.participants.length > 0 ? (
+        <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-3 space-y-3">
+          {mergedParticipants.length > 0 && (
             <div className="space-y-0.5">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                참여자 목록 ({conf.participants.length}명)
+                참여자 목록 ({mergedParticipants.length}명)
               </p>
-              {conf.participants.map((p) => (
+              {mergedParticipants.map((p) => (
                 <ParticipantRow key={p.id} participant={p} />
               ))}
             </div>
-          ) : (
+          )}
+
+          {showLoadDetailUi && (
+            <div className="space-y-2">
+              {loadedParticipants === null && conf.participant_count > 0 && (
+                <p className="text-xs text-gray-500 text-center leading-relaxed">
+                  참여 인원 {conf.participant_count}명(회의 메타데이터 기준)입니다.
+                  <br />
+                  아래 버튼을 누르면 이 회의의 참가자 상세를 불러옵니다.
+                </p>
+              )}
+              {loadedParticipants !== null && loadedParticipants.length === 0 && !detailLoading && (
+                <p className="text-xs text-gray-500 text-center leading-relaxed">
+                  상세 조회 결과가 없습니다. Pexip 버전에 따라 필터가 다를 수 있습니다.
+                  <br />
+                  필요하면 다시 시도해 보세요.
+                </p>
+              )}
+              <button
+                type="button"
+                disabled={detailLoading}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleLoadParticipants();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {detailLoading ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                    불러오는 중…
+                  </>
+                ) : (
+                  <>
+                    <List size={16} />
+                    {loadedParticipants === null ? "참가자 상세 보기" : "다시 조회"}
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {detailError && (
+            <p className="text-xs text-red-600 text-center whitespace-pre-wrap break-words px-1">
+              {detailError}
+            </p>
+          )}
+
+          {!showLoadDetailUi && hasNoParticipantRows && (
             <p className="text-xs text-gray-400 py-2 text-center">
               참여자 정보가 없습니다.
             </p>
@@ -135,7 +223,12 @@ function ConferenceRow({ conf, index }: { conf: CompanyStat["conferences"][0]; i
   );
 }
 
-export default function MeetingModal({ stat, onClose }: Props) {
+export default function MeetingModal({
+  stat,
+  pexipConfig,
+  conferenceListEndpointUsed,
+  onClose,
+}: Props) {
   const totalMeetings = stat.conferences.length;
   const avgDuration = totalMeetings > 0
     ? Math.round(stat.totalDuration / totalMeetings)
@@ -188,7 +281,13 @@ export default function MeetingModal({ stat, onClose }: Props) {
             stat.conferences
               .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
               .map((conf, i) => (
-                <ConferenceRow key={conf.id} conf={conf} index={i} />
+                <ConferenceRow
+                  key={conf.id}
+                  conf={conf}
+                  index={i}
+                  pexipConfig={pexipConfig}
+                  conferenceListEndpointUsed={conferenceListEndpointUsed}
+                />
               ))
           ) : (
             <div className="text-center py-10 text-gray-400">

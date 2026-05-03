@@ -14,7 +14,8 @@ export default function HomePage() {
   const [startDate, setStartDate] = useState<Date>(() => subDays(new Date(), 6));
   const [endDate, setEndDate] = useState<Date>(() => new Date());
 
-  const { stats, dataSource, isLoading, error, fetchData, clearError } = usePexipData();
+  const { stats, dataSource, conferenceEndpointUsed, isLoading, error, fetchData, clearError } =
+    usePexipData();
 
   const handleConfigSaved = useCallback(
     (newConfig: PexipConfig) => {
@@ -164,7 +165,12 @@ export default function HomePage() {
 
         {/* 통계 대시보드 */}
         {(config || isLoading) && (
-          <StatsDashboard stats={stats} isLoading={isLoading} />
+          <StatsDashboard
+            stats={stats}
+            isLoading={isLoading}
+            pexipConfig={config}
+            conferenceListEndpointUsed={conferenceEndpointUsed}
+          />
         )}
       </main>
 

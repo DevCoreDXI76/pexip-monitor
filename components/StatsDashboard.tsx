@@ -4,14 +4,21 @@ import { useState } from "react";
 import { BarChart2, Search } from "lucide-react";
 import CompanyCard from "./CompanyCard";
 import MeetingModal from "./MeetingModal";
-import type { CompanyStat } from "@/lib/types";
+import type { CompanyStat, PexipConfig } from "@/lib/types";
 
 interface Props {
   stats: CompanyStat[];
   isLoading: boolean;
+  pexipConfig: PexipConfig | null;
+  conferenceListEndpointUsed: string | null;
 }
 
-export default function StatsDashboard({ stats, isLoading }: Props) {
+export default function StatsDashboard({
+  stats,
+  isLoading,
+  pexipConfig,
+  conferenceListEndpointUsed,
+}: Props) {
   const [selectedStat, setSelectedStat] = useState<CompanyStat | null>(null);
   const [search, setSearch] = useState("");
 
@@ -93,8 +100,13 @@ export default function StatsDashboard({ stats, isLoading }: Props) {
       )}
 
       {/* 모달 */}
-      {selectedStat && (
-        <MeetingModal stat={selectedStat} onClose={() => setSelectedStat(null)} />
+      {selectedStat && pexipConfig && conferenceListEndpointUsed && (
+        <MeetingModal
+          stat={selectedStat}
+          pexipConfig={pexipConfig}
+          conferenceListEndpointUsed={conferenceListEndpointUsed}
+          onClose={() => setSelectedStat(null)}
+        />
       )}
     </div>
   );

@@ -2,6 +2,7 @@ import { format } from "date-fns";
 import type {
   PexipConference,
   PexipParticipant,
+  PexipConfig,
   EnrichedConference,
   CompanyStat,
   DataSource,
@@ -54,7 +55,53 @@ export function formatDateTime(iso?: string): string {
   }
 }
 
-// Pexip API를 통해 모든 페이지 데이터를 가져오는 공통 함수
+const PEXIP_PAGE_LIMIT = 1000;
+/** 추가 페이지를 한꺼번에 요청할 때 동시 요청 수 (서버 부하와 속도 균형) */
+const PEXIP_PAGE_CONCURRENCY = 5;
+
+async function fetchPexipPage<T>(
+  pexipUrl: string,
+  username: string,
+  password: string,
+  endpoint: string,
+  params: Record<string, string>,
+  offset: number,
+  limit: number
+): Promise<{
+  meta: { next: string | null; total_count: number };
+  objects: T[];
+}> {
+  const queryParams = new URLSearchParams({
+    format: "json",
+    ...params,
+    limit: String(limit),
+    offset: String(offset),
+  });
+
+  const res = await fetch("/api/pexip", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pexipUrl,
+      username,
+      password,
+      endpoint,
+      params: Object.fromEntries(queryParams),
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `API 오류: ${res.status}`);
+  }
+
+  return res.json() as Promise<{
+    meta: { next: string | null; total_count: number };
+    objects: T[];
+  }>;
+}
+
+// Pexip API를 통해 모든 페이지 데이터를 가져오는 공통 함수 (1페이지 이후 병렬 페이징)
 async function fetchAllPexip<T>(
   pexipUrl: string,
   username: string,
@@ -62,80 +109,54 @@ async function fetchAllPexip<T>(
   endpoint: string,
   params: Record<string, string> = {}
 ): Promise<T[]> {
-  const allItems: T[] = [];
-  let offset = 0;
-  const limit = 1000;
+  const limit = PEXIP_PAGE_LIMIT;
+  const first = await fetchPexipPage<T>(pexipUrl, username, password, endpoint, params, 0, limit);
+  const allItems: T[] = [...first.objects];
+  const total = first.meta.total_count;
 
-  while (true) {
-    const queryParams = new URLSearchParams({
-      format: "json",
-      ...params,
-      limit: String(limit),
-      offset: String(offset),
-    });
+  if (!first.meta.next || allItems.length >= total) {
+    return allItems;
+  }
 
-    const res = await fetch("/api/pexip", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pexipUrl,
-        username,
-        password,
-        endpoint,
-        params: Object.fromEntries(queryParams),
-      }),
-    });
+  const offsets: number[] = [];
+  for (let o = limit; o < total; o += limit) {
+    offsets.push(o);
+  }
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `API 오류: ${res.status}`);
+  for (let i = 0; i < offsets.length; i += PEXIP_PAGE_CONCURRENCY) {
+    const slice = offsets.slice(i, i + PEXIP_PAGE_CONCURRENCY);
+    const pages = await Promise.all(
+      slice.map((off) => fetchPexipPage<T>(pexipUrl, username, password, endpoint, params, off, limit))
+    );
+    for (const data of pages) {
+      allItems.push(...data.objects);
     }
-
-    const data = await res.json() as {
-      meta: { next: string | null; total_count: number };
-      objects: T[];
-    };
-    allItems.push(...data.objects);
-
-    if (!data.meta.next || allItems.length >= data.meta.total_count) break;
-    offset += limit;
   }
 
   return allItems;
 }
 
-// 회의 + 참여자를 조회하여 회사별 통계로 집계
+// 회의 목록만 조회하여 회사별 통계로 집계 (참여자 상세 API는 데이터량이 커 지연의 주원인이라 생략, participant_count 사용)
 async function buildStats(
   pexipUrl: string,
   username: string,
   password: string,
   conferenceEndpoint: string,
-  participantEndpoint: string,
-  conferenceParams: Record<string, string>,
-  participantParams: Record<string, string>
+  conferenceParams: Record<string, string>
 ): Promise<CompanyStat[]> {
-  const [conferences, participants] = await Promise.all([
-    fetchAllPexip<PexipConference>(pexipUrl, username, password, conferenceEndpoint, conferenceParams),
-    fetchAllPexip<PexipParticipant>(pexipUrl, username, password, participantEndpoint, participantParams).catch(() => [] as PexipParticipant[]),
-  ]);
+  const conferences = await fetchAllPexip<PexipConference>(
+    pexipUrl,
+    username,
+    password,
+    conferenceEndpoint,
+    conferenceParams
+  );
 
   if (conferences.length === 0) return [];
 
-  const participantsByConference = new Map<string, PexipParticipant[]>();
-  for (const p of participants) {
-    const key = p.conference;
-    if (!key) continue;
-    if (!participantsByConference.has(key)) participantsByConference.set(key, []);
-    participantsByConference.get(key)!.push(p);
-  }
-
   const enriched: EnrichedConference[] = conferences.map((conf) => ({
     ...conf,
-    // Pexip 버전/환경별로 participant.conference 값이 name 또는 resource_uri일 수 있어 둘 다 매칭
-    participants:
-      participantsByConference.get(conf.resource_uri) ??
-      participantsByConference.get(conf.name) ??
-      [],
+    participants: [],
     company: extractCompanyFromConference(conf),
   }));
 
@@ -162,6 +183,29 @@ async function buildStats(
   return Array.from(companyMap.values()).sort((a, b) => b.meetingCount - a.meetingCount);
 }
 
+/** `.../conference/` 목록 엔드포인트 → 동일 버전의 `.../participant/` 목록 엔드포인트 */
+export function participantListEndpointFromConferenceEndpoint(conferenceListEndpoint: string): string {
+  const trimmed = conferenceListEndpoint.replace(/\/?$/, "/");
+  if (trimmed.endsWith("/conference/")) {
+    return `${trimmed.slice(0, -"/conference/".length)}/participant/`;
+  }
+  return trimmed.replace(/\/conference\/$/, "/participant/");
+}
+
+/**
+ * 특정 회의의 참가자 목록만 조회 (Pexip 문서: GET .../participant/?conference=<회의 id>)
+ */
+export async function fetchParticipantsForConference(
+  config: PexipConfig,
+  conferenceListEndpointUsed: string,
+  conferenceId: string
+): Promise<PexipParticipant[]> {
+  const endpoint = participantListEndpointFromConferenceEndpoint(conferenceListEndpointUsed);
+  return fetchAllPexip<PexipParticipant>(config.url, config.username, config.password, endpoint, {
+    conference: conferenceId,
+  });
+}
+
 // 메인 함수: history → status 순으로 자동 폴백, 커스텀 API 기본 경로 지원
 export async function fetchCompanyStats(
   pexipUrl: string,
@@ -180,13 +224,10 @@ export async function fetchCompanyStats(
 
   // 1차 시도: history v1 엔드포인트 (최신 경로)
   try {
-    const stats = await buildStats(
-      pexipUrl, username, password,
-      `${apiBase}/history/v1/conference/`,
-      `${apiBase}/history/v1/participant/`,
-      { start_time__gte: startStr, start_time__lte: endStr },
-      { connect_time__gte: startStr, connect_time__lte: endStr }
-    );
+    const stats = await buildStats(pexipUrl, username, password, `${apiBase}/history/v1/conference/`, {
+      start_time__gte: startStr,
+      start_time__lte: endStr,
+    });
     return { stats, dataSource: "history", endpointUsed: `${apiBase}/history/v1/conference/` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -196,13 +237,10 @@ export async function fetchCompanyStats(
 
   // 2차 시도: history (구버전 경로)
   try {
-    const stats = await buildStats(
-      pexipUrl, username, password,
-      `${apiBase}/history/conference/`,
-      `${apiBase}/history/participant/`,
-      { start_time__gte: startStr, start_time__lte: endStr },
-      { connect_time__gte: startStr, connect_time__lte: endStr }
-    );
+    const stats = await buildStats(pexipUrl, username, password, `${apiBase}/history/conference/`, {
+      start_time__gte: startStr,
+      start_time__lte: endStr,
+    });
     return { stats, dataSource: "history", endpointUsed: `${apiBase}/history/conference/` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -212,13 +250,7 @@ export async function fetchCompanyStats(
 
   // 3차 시도: status 엔드포인트 (현재 활성 회의)
   try {
-    const stats = await buildStats(
-      pexipUrl, username, password,
-      `${apiBase}/status/conference/`,
-      `${apiBase}/status/participant/`,
-      {},
-      {}
-    );
+    const stats = await buildStats(pexipUrl, username, password, `${apiBase}/status/conference/`, {});
     return { stats, dataSource: "status", endpointUsed: `${apiBase}/status/conference/` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
