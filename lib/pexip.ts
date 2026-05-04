@@ -45,31 +45,30 @@ export function formatDuration(seconds: number): string {
   return `${m}m`;
 }
 
-const DISPLAY_TZ = "Asia/Seoul";
+/** 한국 표준시(KST) = UTC+9 (일광절 없음) */
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
 
 /**
- * ISO 시각을 한국 표준시(KST) 기준 `yyyy-MM-dd HH:mm`으로 표시.
- * Pexip API는 UTC 기준이 많아, 로컬 PC 타임존에 맡기면 오전/새벽으로 잘못 보일 수 있음.
+ * Pexip API에서 받은 ISO 시각(UTC instant)에 9시간을 더해 KST 벽시계로 `yyyy-MM-dd HH:mm` 표시.
+ * `Date`로 파싱한 뒤 오프셋을 더하고 `getUTC*`로 포맷해, 브라우저 로컬 타임존과 무관하게 동일하게 보이게 합니다.
+ * (요청 쿼리의 날짜 범위는 `toUtcIsoRange` 등 기존처럼 UTC 기준을 유지합니다.)
  */
 export function formatDateTime(iso?: string): string {
   if (!iso) return "-";
   try {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return iso;
-    const f = new Intl.DateTimeFormat("en-CA", {
-      timeZone: DISPLAY_TZ,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    });
-    const parts = f.formatToParts(date);
-    const map = Object.fromEntries(
-      parts.filter((x) => x.type !== "literal").map((x) => [x.type, x.value])
-    ) as Record<string, string>;
-    return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}`;
+    const utc = new Date(iso);
+    if (Number.isNaN(utc.getTime())) return iso;
+    const kstWall = new Date(utc.getTime() + KST_OFFSET_MS);
+    const y = kstWall.getUTCFullYear();
+    const mo = pad2(kstWall.getUTCMonth() + 1);
+    const da = pad2(kstWall.getUTCDate());
+    const h = pad2(kstWall.getUTCHours());
+    const mi = pad2(kstWall.getUTCMinutes());
+    return `${y}-${mo}-${da} ${h}:${mi}`;
   } catch {
     return iso;
   }
