@@ -51,6 +51,11 @@ export interface PexipParticipant {
   remote_address: string;
   bandwidth?: number;
   resource_uri: string;
+  /** 회의실 가동률 집계용 — 물리 장비 위치(예: "Posco_CVI_Zone") */
+  system_location?: string;
+  /** "ivr"/"conference"/"gateway" 등 — 노이즈 필터(IVR 제외)에 사용 */
+  service_type?: string;
+  service_name?: string;
 }
 
 export interface PexipParticipantListResponse {

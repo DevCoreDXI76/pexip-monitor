@@ -8,7 +8,8 @@ import type {
   FetchResult,
 } from "./types";
 
-function toUtcIsoRange(date: Date, kind: "start" | "end"): string {
+/** 사용자 선택 날짜를 Pexip 쿼리에 쓸 UTC ISO("…Z")로 변환 */
+export function toUtcIsoRange(date: Date, kind: "start" | "end"): string {
   const d = new Date(date);
   if (kind === "start") {
     d.setUTCHours(0, 0, 0, 0);
@@ -270,6 +271,24 @@ export async function fetchParticipantsForConference(
   const endpoint = participantListEndpointFromConferenceEndpoint(conferenceListEndpointUsed);
   return fetchAllPexip<PexipParticipant>(config.url, config.username, config.password, endpoint, {
     conference: conferenceId,
+  });
+}
+
+/**
+ * 기간(연결 시각 기준) 내 모든 참가자 목록 조회 — 분석(라이선스 Peak / 회의실 가동률)에 사용.
+ * - Pexip 필터: `connect_time__gte`, `connect_time__lte` (UTC ISO Z)
+ * - IVR 필터링은 호출 측(`lib/analytics.ts`)에서 service_type 또는 회의 ID 매칭으로 수행
+ */
+export async function fetchAllParticipantsInRange(
+  config: PexipConfig,
+  conferenceListEndpointUsed: string,
+  startDate: Date,
+  endDate: Date
+): Promise<PexipParticipant[]> {
+  const endpoint = participantListEndpointFromConferenceEndpoint(conferenceListEndpointUsed);
+  return fetchAllPexip<PexipParticipant>(config.url, config.username, config.password, endpoint, {
+    connect_time__gte: toUtcIsoRange(startDate, "start"),
+    connect_time__lte: toUtcIsoRange(endDate, "end"),
   });
 }
 

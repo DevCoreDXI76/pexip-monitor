@@ -170,6 +170,8 @@ export default function HomePage() {
             isLoading={isLoading}
             pexipConfig={config}
             conferenceListEndpointUsed={conferenceEndpointUsed}
+            startDate={startDate}
+            endDate={endDate}
           />
         )}
       </main>

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { BarChart2, Search } from "lucide-react";
+import { BarChart2, Search, Activity } from "lucide-react";
 import CompanyCard from "./CompanyCard";
 import MeetingModal from "./MeetingModal";
+import AnalyticsModal from "./AnalyticsModal";
 import type { CompanyStat, PexipConfig } from "@/lib/types";
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
   isLoading: boolean;
   pexipConfig: PexipConfig | null;
   conferenceListEndpointUsed: string | null;
+  startDate: Date;
+  endDate: Date;
 }
 
 export default function StatsDashboard({
@@ -18,8 +21,11 @@ export default function StatsDashboard({
   isLoading,
   pexipConfig,
   conferenceListEndpointUsed,
+  startDate,
+  endDate,
 }: Props) {
   const [selectedStat, setSelectedStat] = useState<CompanyStat | null>(null);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   const filtered = stats.filter((s) =>
@@ -69,16 +75,28 @@ export default function StatsDashboard({
         </div>
       </div>
 
-      {/* 검색창 */}
-      <div className="relative mb-4">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="회사명 검색..."
-          className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-        />
+      {/* 검색창 + 분석 버튼 */}
+      <div className="flex flex-col sm:flex-row gap-2 mb-4">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="회사명 검색..."
+            className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setAnalyticsOpen(true)}
+          disabled={!pexipConfig || !conferenceListEndpointUsed}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-sm transition-colors"
+          title="동시 접속 Peak / 회의실(SIP·H.323) 가동률 분석"
+        >
+          <Activity size={16} />
+          운영 분석
+        </button>
       </div>
 
       {/* 회사별 카드 목록 */}
@@ -99,13 +117,25 @@ export default function StatsDashboard({
         </div>
       )}
 
-      {/* 모달 */}
+      {/* 회의 상세 모달 */}
       {selectedStat && pexipConfig && conferenceListEndpointUsed && (
         <MeetingModal
           stat={selectedStat}
           pexipConfig={pexipConfig}
           conferenceListEndpointUsed={conferenceListEndpointUsed}
           onClose={() => setSelectedStat(null)}
+        />
+      )}
+
+      {/* 운영 분석 모달 (Peak / 회의실 가동률) */}
+      {analyticsOpen && pexipConfig && conferenceListEndpointUsed && (
+        <AnalyticsModal
+          pexipConfig={pexipConfig}
+          conferenceListEndpointUsed={conferenceListEndpointUsed}
+          stats={stats}
+          startDate={startDate}
+          endDate={endDate}
+          onClose={() => setAnalyticsOpen(false)}
         />
       )}
     </div>
