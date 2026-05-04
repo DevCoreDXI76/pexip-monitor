@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import type {
   PexipConference,
   PexipParticipant,
@@ -45,28 +46,10 @@ export function formatDuration(seconds: number): string {
   return `${m}m`;
 }
 
-const DISPLAY_TZ = "Asia/Seoul";
-
-/** Pexip API 시각(UTC 등)을 한국 표준시(KST)로 변환해 `yyyy-MM-dd HH:mm` 형식으로 표시 */
 export function formatDateTime(iso?: string): string {
   if (!iso) return "-";
   try {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return iso;
-    const f = new Intl.DateTimeFormat("en-CA", {
-      timeZone: DISPLAY_TZ,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    });
-    const parts = f.formatToParts(date);
-    const map = Object.fromEntries(
-      parts.filter((x) => x.type !== "literal").map((x) => [x.type, x.value])
-    ) as Record<string, string>;
-    return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}`;
+    return format(new Date(iso), "yyyy-MM-dd HH:mm");
   } catch {
     return iso;
   }
