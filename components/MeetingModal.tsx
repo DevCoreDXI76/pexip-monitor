@@ -17,7 +17,13 @@ import {
   Wifi,
   List,
 } from "lucide-react";
-import { formatDuration, formatDateTime, fetchParticipantsForConference } from "@/lib/pexip";
+import {
+  formatDuration,
+  formatDateTime,
+  fetchParticipantsForConference,
+  participantJoinIso,
+  participantLeaveIso,
+} from "@/lib/pexip";
 import type { CompanyStat, PexipConfig, PexipParticipant } from "@/lib/types";
 
 interface Props {
@@ -55,8 +61,11 @@ function RoleBadge({ role }: { role: string }) {
 
 // 참여자 목록 행
 function ParticipantRow({ participant }: { participant: PexipParticipant }) {
+  const joinIso = participantJoinIso(participant);
+  const leaveIso = participantLeaveIso(participant);
+
   return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-50">
+    <div className="flex items-start gap-3 py-2.5 px-3 rounded-lg hover:bg-gray-50">
       <ProtocolIcon protocol={participant.protocol} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-700 truncate">
@@ -65,10 +74,17 @@ function ParticipantRow({ participant }: { participant: PexipParticipant }) {
         <p className="text-xs text-gray-400">
           {participant.protocol} · {participant.remote_address || "-"}
         </p>
+        <p className="text-xs text-gray-600 mt-1.5 leading-relaxed">
+          <span className="text-gray-500">참여 </span>
+          {joinIso ? formatDateTime(joinIso) : "—"}
+          <span className="text-gray-300 mx-1.5">|</span>
+          <span className="text-gray-500">종료 </span>
+          {leaveIso ? formatDateTime(leaveIso) : "진행 중"}
+        </p>
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex flex-col items-end gap-1 flex-shrink-0 pt-0.5">
         <RoleBadge role={participant.role} />
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-gray-400 tabular-nums">
           {formatDuration(participant.duration ?? 0)}
         </span>
       </div>
@@ -128,12 +144,8 @@ function ConferenceRow({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-800 truncate">{conf.name}</p>
           <div className="flex flex-wrap gap-3 text-xs text-gray-400 mt-0.5">
-            <span>
-              시작: {formatDateTime(conf.start_time)}
-            </span>
-            <span>
-              종료: {formatDateTime(conf.end_time)}
-            </span>
+            <span>시작: {formatDateTime(conf.start_time)}</span>
+            <span>종료: {formatDateTime(conf.end_time)}</span>
             <span className="flex items-center gap-1">
               <Clock size={10} />
               {formatDuration(conf.duration ?? 0)}
@@ -249,6 +261,7 @@ export default function MeetingModal({
             <div>
               <h2 className="text-lg font-bold text-gray-900">{stat.company}</h2>
               <p className="text-sm text-gray-400">회의 상세 내역</p>
+              <p className="text-xs text-gray-400 mt-0.5">시각은 한국 표준시(KST) 기준입니다.</p>
             </div>
           </div>
           <button

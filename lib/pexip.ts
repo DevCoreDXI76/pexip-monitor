@@ -1,4 +1,3 @@
-import { format } from "date-fns";
 import type {
   PexipConference,
   PexipParticipant,
@@ -46,13 +45,44 @@ export function formatDuration(seconds: number): string {
   return `${m}m`;
 }
 
+const DISPLAY_TZ = "Asia/Seoul";
+
+/**
+ * ISO 시각을 한국 표준시(KST) 기준 `yyyy-MM-dd HH:mm`으로 표시.
+ * Pexip API는 UTC 기준이 많아, 로컬 PC 타임존에 맡기면 오전/새벽으로 잘못 보일 수 있음.
+ */
 export function formatDateTime(iso?: string): string {
   if (!iso) return "-";
   try {
-    return format(new Date(iso), "yyyy-MM-dd HH:mm");
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    const f = new Intl.DateTimeFormat("en-CA", {
+      timeZone: DISPLAY_TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    const parts = f.formatToParts(date);
+    const map = Object.fromEntries(
+      parts.filter((x) => x.type !== "literal").map((x) => [x.type, x.value])
+    ) as Record<string, string>;
+    return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}`;
   } catch {
     return iso;
   }
+}
+
+export function participantJoinIso(p: PexipParticipant): string | undefined {
+  const v = p.connect_time || p.start_time;
+  return v?.trim() ? v : undefined;
+}
+
+export function participantLeaveIso(p: PexipParticipant): string | undefined {
+  const v = p.disconnect_time || p.end_time;
+  return v?.trim() ? v : undefined;
 }
 
 const PEXIP_PAGE_LIMIT = 1000;

@@ -32,14 +32,19 @@ export interface PexipConferenceListResponse {
 }
 
 // Pexip /api/admin/history/participant/ 또는 /api/admin/status/participant/ 응답 항목
-// status 엔드포인트는 disconnect_time, duration 없음 (연결 중인 참여자)
+// history: connect_time/disconnect_time 또는 start_time/end_time 등 버전별 필드명 차이 가능
+// status: 진행 중이면 종료 시각·duration 없을 수 있음
 export interface PexipParticipant {
   id: string;
   display_name: string;
   role: "chair" | "guest" | "unknown";
   protocol: "WebRTC" | "SIP" | "H.323" | "RTMP" | "Skype" | "API" | "Teams" | string;
-  connect_time: string;         // ISO 8601
-  disconnect_time?: string;     // history만 존재
+  /** 참가 시각 (일부 버전/응답은 start_time) */
+  connect_time?: string;
+  start_time?: string;
+  /** 퇴장 시각 (history: disconnect_time 또는 end_time) */
+  disconnect_time?: string;
+  end_time?: string;
   duration?: number;            // history만 존재
   conference: string;
   call_quality?: number | null;
