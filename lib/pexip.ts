@@ -19,11 +19,32 @@ function toUtcIsoRange(date: Date, kind: "start" | "end"): string {
   return d.toISOString().replace(".999Z", "Z");
 }
 
+/** Teams IVR — 회사별 카운터에서 제외 */
+const TEAMS_IVR_NAME_RE = /MS\s+Teams\s+IVR\s+Service\s+for/i;
+/** Teams CVI — 회사별 카운터에만 포함 */
+const TEAMS_CVI_NAME_RE = /Microsoft\s+Teams\s+CVI\s+Call\s+for/i;
+
+/** 회사별 통계에 넣을 회의인지: IVR 제외, CVI Call만 포함 */
+export function shouldIncludeConferenceInCompanyCounter(name: string): boolean {
+  const n = (name || "").trim();
+  if (!n) return false;
+  if (TEAMS_IVR_NAME_RE.test(n)) return false;
+  return TEAMS_CVI_NAME_RE.test(n);
+}
+
+function companyFromTeamsCviCallName(name: string): string | null {
+  const m = name.trim().match(/^Microsoft\s+Teams\s+CVI\s+Call\s+for\s+([^:]+)/i);
+  return m ? m[1].trim() : null;
+}
+
 export function extractCompanyFromConference(conference: PexipConference): string {
   const name = conference.name || "";
   const tag = conference.tag || "";
 
   if (tag && tag.trim()) return tag.trim();
+
+  const fromCvi = companyFromTeamsCviCallName(name);
+  if (fromCvi) return fromCvi;
 
   if (name.includes("@")) {
     const parts = name.split("@");
@@ -195,9 +216,12 @@ async function buildStats(
     conferenceParams
   );
 
-  if (conferences.length === 0) return [];
+  const forStats = conferences.filter((c) =>
+    shouldIncludeConferenceInCompanyCounter(c.name || "")
+  );
+  if (forStats.length === 0) return [];
 
-  const enriched: EnrichedConference[] = conferences.map((conf) => ({
+  const enriched: EnrichedConference[] = forStats.map((conf) => ({
     ...conf,
     participants: [],
     company: extractCompanyFromConference(conf),
