@@ -23,6 +23,7 @@ import {
   fetchParticipantsForConference,
   participantJoinIso,
   participantLeaveIso,
+  parsePexipUtcDate,
 } from "@/lib/pexip";
 import type { CompanyStat, PexipConfig, PexipParticipant } from "@/lib/types";
 
@@ -292,7 +293,11 @@ export default function MeetingModal({
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
           {stat.conferences.length > 0 ? (
             stat.conferences
-              .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+              .sort(
+                (a, b) =>
+                  parsePexipUtcDate(b.start_time).getTime() -
+                  parsePexipUtcDate(a.start_time).getTime()
+              )
               .map((conf, i) => (
                 <ConferenceRow
                   key={conf.id}

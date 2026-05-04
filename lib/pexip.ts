@@ -53,14 +53,28 @@ function pad2(n: number): string {
 }
 
 /**
- * Pexip API에서 받은 ISO 시각(UTC instant)에 9시간을 더해 KST 벽시계로 `yyyy-MM-dd HH:mm` 표시.
- * `Date`로 파싱한 뒤 오프셋을 더하고 `getUTC*`로 포맷해, 브라우저 로컬 타임존과 무관하게 동일하게 보이게 합니다.
- * (요청 쿼리의 날짜 범위는 `toUtcIsoRange` 등 기존처럼 UTC 기준을 유지합니다.)
+ * Pexip API ISO 문자열을 항상 UTC 기준으로 파싱.
+ *
+ * Pexip 응답은 `2026-05-04T00:03:47`처럼 타임존 표기가 없는 경우가 있다.
+ * ECMAScript는 이런 문자열을 "로컬 시간"으로 해석하므로, KST PC에서 그대로 +9h를 더하면
+ * 결과가 사실상 무효화되어(예: "00:03"이 그대로 "00:03"으로) Pexip 웹 UI(JST 09:03)와 어긋난다.
+ * → `Z` 또는 `±HH:MM` 오프셋이 없으면 자동으로 `Z`를 붙여 UTC로 강제 해석한다.
+ */
+export function parsePexipUtcDate(iso: string): Date {
+  const trimmed = iso.trim();
+  const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(trimmed);
+  return new Date(hasTz ? trimmed : `${trimmed}Z`);
+}
+
+/**
+ * Pexip 시각(UTC)에 +9h를 더해 KST 벽시계 `yyyy-MM-dd HH:mm`으로 표시.
+ * 브라우저 로컬 타임존과 무관하게 같은 결과를 내기 위해 `getUTC*`로 포맷한다.
+ * (요청 쿼리의 날짜 범위는 `toUtcIsoRange` 등 기존처럼 UTC 기준을 유지)
  */
 export function formatDateTime(iso?: string): string {
   if (!iso) return "-";
   try {
-    const utc = new Date(iso);
+    const utc = parsePexipUtcDate(iso);
     if (Number.isNaN(utc.getTime())) return iso;
     const kstWall = new Date(utc.getTime() + KST_OFFSET_MS);
     const y = kstWall.getUTCFullYear();
