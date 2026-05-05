@@ -81,10 +81,16 @@ export interface EnrichedConference extends PexipConference {
 // 회사별 통계 집계 결과
 export interface CompanyStat {
   company: string;
+  /** 카스케이딩 병합 후 회의 수 (= mergedConferences.length) */
   meetingCount: number;
-  totalDuration: number;      // 초
+  /** 병합 회의 기준 총 진행 시간 합계 (초) */
+  totalDuration: number;
+  /** 중복 합산을 막은 참여자 수 합계 (병합 회의별 MAX participant_count의 합) */
   totalParticipants: number;
+  /** Pexip이 보낸 원본 회의 (cascading으로 분할된 그대로) */
   conferences: EnrichedConference[];
+  /** 카스케이딩 병합 결과 — UI 표시·정확한 카운트 산출에 사용 */
+  mergedConferences: import("./merge").MergedConference[];
 }
 
 // 조회 결과 (데이터 소스 정보 포함)

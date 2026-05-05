@@ -11,6 +11,7 @@ import {
   AlertCircle,
   BarChart3,
   Building2,
+  Layers,
 } from "lucide-react";
 import { fetchAllParticipantsInRange } from "@/lib/pexip";
 import {
@@ -24,7 +25,9 @@ import {
   type RoomUtilization,
   type RoomGranularity,
 } from "@/lib/analytics";
+import MergedConferencesList from "./MergedConferencesList";
 import type { CompanyStat, PexipConfig, PexipParticipant } from "@/lib/types";
+import type { MergedConference } from "@/lib/merge";
 
 interface Props {
   pexipConfig: PexipConfig;
@@ -36,7 +39,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "peak" | "rooms";
+type Tab = "peak" | "rooms" | "merged";
 
 const BUCKET_OPTIONS: { label: string; minutes: number }[] = [
   { label: "10분", minutes: 10 },
@@ -69,6 +72,16 @@ export default function AnalyticsModal({
     () => partitionConferencesByKind(allConferences),
     [allConferences]
   );
+
+  // 카스케이딩 병합 결과 (회사별 stats에서 모아서 시작 시각 내림차순 정렬)
+  const mergedConferences = useMemo<MergedConference[]>(() => {
+    const all = stats.flatMap((s) => s.mergedConferences);
+    return all.sort((a, b) => {
+      const ta = new Date(a.start_time).getTime() || 0;
+      const tb = new Date(b.start_time).getTime() || 0;
+      return tb - ta;
+    });
+  }, [stats]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,18 +158,23 @@ export default function AnalyticsModal({
         </div>
 
         {/* 탭 */}
-        <div className="flex gap-1 px-6 pt-4">
+        <div className="flex flex-wrap gap-1 px-6 pt-4">
           <TabButton active={tab === "peak"} onClick={() => setTab("peak")} icon={<BarChart3 size={14} />}>
             동시 접속 분석
           </TabButton>
           <TabButton active={tab === "rooms"} onClick={() => setTab("rooms")} icon={<MonitorSmartphone size={14} />}>
             회의실 가동률
           </TabButton>
+          <TabButton active={tab === "merged"} onClick={() => setTab("merged")} icon={<Layers size={14} />}>
+            병합 회의 ({mergedConferences.length})
+          </TabButton>
         </div>
 
         {/* 본문 */}
         <div className="flex-1 overflow-y-auto px-6 pb-6 pt-4 space-y-4">
-          {loading && (
+          {/* 분석(Peak/Rooms) 탭은 참가자 데이터가 필요하므로 로딩/에러를 표시.
+              병합 회의 탭은 stats(이미 로드됨)만 사용하므로 별도 로딩 없이 바로 렌더. */}
+          {tab !== "merged" && loading && (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <Loader2 size={28} className="animate-spin mb-3 text-purple-500" />
               <p className="text-sm">참가자 데이터를 불러오는 중입니다…</p>
@@ -164,7 +182,7 @@ export default function AnalyticsModal({
             </div>
           )}
 
-          {error && !loading && (
+          {tab !== "merged" && error && !loading && (
             <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
               <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
@@ -194,6 +212,8 @@ export default function AnalyticsModal({
               participantsConsidered={filteredParticipants.length}
             />
           )}
+
+          {tab === "merged" && <MergedConferencesList items={mergedConferences} />}
         </div>
 
         {/* 푸터 */}

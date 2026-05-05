@@ -7,6 +7,7 @@ import type {
   DataSource,
   FetchResult,
 } from "./types";
+import { mergeCascadedConferences } from "./merge";
 
 /** 사용자 선택 날짜를 Pexip 쿼리에 쓸 UTC ISO("…Z")로 변환 */
 export function toUtcIsoRange(date: Date, kind: "start" | "end"): string {
@@ -228,7 +229,12 @@ async function buildStats(
     company: extractCompanyFromConference(conf),
   }));
 
-  const companyMap = new Map<string, CompanyStat>();
+  // 회사별로 (1) 원본 회의(EnrichedConference)와 (2) 카스케이딩 병합 결과를 함께 보관.
+  // 회의 수/참여자 수/총 시간은 (2) 병합 결과를 기준으로 산출해 중복을 제거한다.
+  const companyMap = new Map<
+    string,
+    Omit<CompanyStat, "mergedConferences"> & { conferences: EnrichedConference[] }
+  >();
 
   for (const conf of enriched) {
     const key = conf.company;
@@ -242,13 +248,28 @@ async function buildStats(
       });
     }
     const stat = companyMap.get(key)!;
-    stat.meetingCount += 1;
-    stat.totalDuration += conf.duration ?? 0;
-    stat.totalParticipants += conf.participant_count ?? conf.participants.length;
     stat.conferences.push(conf);
   }
 
-  return Array.from(companyMap.values()).sort((a, b) => b.meetingCount - a.meetingCount);
+  const result: CompanyStat[] = [];
+  for (const partial of companyMap.values()) {
+    const mergedConferences = mergeCascadedConferences(partial.conferences);
+    const meetingCount = mergedConferences.length;
+    const totalDuration = mergedConferences.reduce((s, m) => s + (m.duration ?? 0), 0);
+    const totalParticipants = mergedConferences.reduce(
+      (s, m) => s + (m.participant_count ?? 0),
+      0
+    );
+    result.push({
+      ...partial,
+      meetingCount,
+      totalDuration,
+      totalParticipants,
+      mergedConferences,
+    });
+  }
+
+  return result.sort((a, b) => b.meetingCount - a.meetingCount);
 }
 
 /** `.../conference/` 목록 엔드포인트 → 동일 버전의 `.../participant/` 목록 엔드포인트 */
