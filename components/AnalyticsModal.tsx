@@ -18,6 +18,7 @@ import {
   computeConcurrency,
   computeRoomUtilization,
   formatHoursMinutes,
+  isBackplaneParticipant,
   isIvrParticipant,
   partitionConferencesByKind,
   toKstRangeMs,
@@ -111,10 +112,10 @@ export default function AnalyticsModal({
     };
   }, [pexipConfig, conferenceListEndpointUsed, startDate, endDate]);
 
-  // IVR 제외 (service_type 또는 IVR 회의 URI 매칭)
+  // IVR + 카스케이딩 백플레인 제외 (시스템 노이즈 정제)
   const filteredParticipants = useMemo<PexipParticipant[]>(() => {
     if (!participants) return [];
-    return participants.filter((p) => !isIvrParticipant(p, ivrUris));
+    return participants.filter((p) => !isIvrParticipant(p, ivrUris) && !isBackplaneParticipant(p));
   }, [participants, ivrUris]);
 
   const rangeStartKstMs = useMemo(() => toKstRangeMs(startDate, "start"), [startDate]);
@@ -145,7 +146,7 @@ export default function AnalyticsModal({
             <div>
               <h2 className="text-lg font-bold text-gray-900">운영 분석</h2>
               <p className="text-sm text-gray-400">
-                동시 접속(Peak) · 회의실(SIP/H.323) 가동률 — KST 기준 · IVR 제외
+                동시 접속(Peak) · 회의실(SIP/H.323) 가동률 — KST 기준 · IVR / 카스케이딩 백플레인 제외
               </p>
             </div>
           </div>

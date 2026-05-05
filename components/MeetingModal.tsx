@@ -26,6 +26,7 @@ import {
   participantLeaveIso,
   parsePexipUtcDate,
 } from "@/lib/pexip";
+import { isBackplaneParticipant } from "@/lib/analytics";
 import type { CompanyStat, PexipConfig, PexipParticipant } from "@/lib/types";
 import type { MergedConference } from "@/lib/merge";
 
@@ -124,7 +125,10 @@ function ConferenceRow({
     setDetailError(null);
     setDetailLoading(true);
     try {
-      // 카스케이딩으로 분산된 모든 노드의 참가자를 병합 후 id 기준 중복 제거
+      // 카스케이딩으로 분산된 모든 노드의 참가자를 모은 뒤
+      //  (1) Conferencing Node 사이의 백플레인(시스템 link) 제외
+      //  (2) id가 없으면 display_name + 참여 시각으로 dedup
+      // → 화면에 표시되는 인원 수 = 실제 사람 참여자 수
       const lists = await Promise.all(
         sourceIds.map((id) =>
           fetchParticipantsForConference(pexipConfig, conferenceListEndpointUsed, id)
@@ -134,6 +138,7 @@ function ConferenceRow({
       const combined: PexipParticipant[] = [];
       for (const list of lists) {
         for (const p of list) {
+          if (isBackplaneParticipant(p)) continue;
           const key = p.id || `${p.display_name}|${participantJoinIso(p) ?? ""}`;
           if (seen.has(key)) continue;
           seen.add(key);

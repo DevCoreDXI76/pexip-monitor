@@ -13,9 +13,12 @@
  * 본 모듈은 원본 PexipConference 배열을 받아, 다음 규칙으로 동일 회의끼리 묶어
  * MergedConference[]로 반환한다.
  *
- *  1) 동일 회의 판단 기준
- *     - 회의명에서 콜론(`:`) 앞부분(`baseName`)이 동일
- *     - 두 레코드의 [start_time, end_time] 인터벌이 서로 겹치는(overlap) 경우
+ *  1) 동일 회의 판단 기준 (강한 키 → 약한 키 순서로 우선 적용)
+ *     a) `tag` 우선: 동일한 비어 있지 않은 `tag`를 공유하는 레코드는 1차 그룹으로 묶는다.
+ *        (Pexip 관리자가 회의 템플릿/태그를 재사용하면 cascade 노드 전반에서 같은 tag가 부여된다)
+ *     b) `tag`가 없으면 회의명에서 콜론(`:`) 앞부분(`baseName`)이 동일한지로 그룹화.
+ *     c) 1차 그룹 내에서 [start_time, end_time] 인터벌이 서로 겹치는(overlap) 항목들을 한 cluster로 모은다.
+ *        (같은 tag/baseName이라도 서로 다른 시점의 별개 회의는 분리된다)
  *
  *  2) 병합 시 데이터 처리 기준
  *     - start_time         : MIN
@@ -115,14 +118,29 @@ function conferenceInterval(c: RawPexipConference): { startMs: number; endMs: nu
 // ─────────────────────────────────────────────────────────────
 
 /**
+ * 1차 그룹 키를 결정.
+ * - 비어 있지 않은 `tag`가 있으면 `tag:<value>` 형태를 사용 (가장 강한 식별자)
+ * - 그렇지 않으면 `name:<baseName>`을 사용
+ *
+ * 같은 키여도 시간대가 겹치지 않으면 2차 단계(인터벌 cluster)에서 분리된다.
+ */
+function primaryGroupKey(c: RawPexipConference): { key: string; baseName: string } {
+  const { baseName } = splitConferenceName(c.name || "");
+  const tag = (c.tag ?? "").trim();
+  if (tag) return { key: `tag:${tag}`, baseName: baseName || tag };
+  return { key: `name:${baseName || "Unknown"}`, baseName: baseName || "Unknown" };
+}
+
+/**
  * 분산된 회의 레코드 배열을 동일 회의끼리 병합.
  *
  * 알고리즘
- *  1) baseName(콜론 앞)으로 1차 그룹화
+ *  1) 1차 그룹화 — `tag`가 있으면 tag, 없으면 baseName(콜론 앞) 기준
  *  2) 그룹 내에서 start_time 오름차순 정렬
  *  3) 누적 cluster의 [clusterStart, clusterMaxEnd]와 다음 항목의 [s, e]가
  *     겹치면(`intervalsOverlap`) cluster에 추가, 아니면 새 cluster 시작
  *     (전체 cluster 범위와 비교하므로 "체인 형태로 이어지는 cascade"도 한 그룹으로 묶임)
+ *     같은 tag/baseName이라도 인터벌이 떨어져 있으면 별개 회의로 분리됨.
  *  4) cluster마다 MIN(start)/MAX(end)/MAX(participant_count)로 MergedConference 생성
  *  5) 시작 시각 내림차순(최근 회의 먼저)으로 정렬해 반환
  */
@@ -131,19 +149,18 @@ export function mergeCascadedConferences(
 ): MergedConference[] {
   if (!conferences || conferences.length === 0) return [];
 
-  // 1) baseName으로 그룹화
-  const byBase = new Map<string, RawPexipConference[]>();
+  // 1) 1차 그룹화 (tag 우선, 없으면 baseName)
+  const byKey = new Map<string, { baseName: string; items: RawPexipConference[] }>();
   for (const c of conferences) {
-    const { baseName } = splitConferenceName(c.name || "");
-    const key = baseName || "Unknown";
-    const arr = byBase.get(key);
-    if (arr) arr.push(c);
-    else byBase.set(key, [c]);
+    const { key, baseName } = primaryGroupKey(c);
+    const entry = byKey.get(key);
+    if (entry) entry.items.push(c);
+    else byKey.set(key, { baseName, items: [c] });
   }
 
   const merged: MergedConference[] = [];
 
-  for (const [baseName, group] of byBase) {
+  for (const { baseName, items: group } of byKey.values()) {
     // 2) 시작 시각 오름차순
     const sorted = [...group].sort((a, b) => {
       const sa = utcMs(a.start_time) ?? 0;

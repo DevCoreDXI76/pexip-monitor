@@ -57,7 +57,7 @@ export function formatKstMonth(kstMs: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 1) 노이즈 데이터 필터링 (IVR 제외)
+// 1) 노이즈 데이터 필터링 (IVR / Backplane 제외)
 // ─────────────────────────────────────────────────────────────
 
 /** "ivr"이 service_type/service_name/회의명 중 어디에라도 들어가면 제외 */
@@ -66,6 +66,42 @@ export function isIvrParticipant(p: PexipParticipant, ivrConferenceUris?: Set<st
   const sn = (p.service_name || "").toLowerCase();
   if (st.includes("ivr") || sn.includes("ivr")) return true;
   if (ivrConferenceUris && p.conference && ivrConferenceUris.has(p.conference)) return true;
+  return false;
+}
+
+/**
+ * 카스케이딩 분산 회의에서 Conferencing Node 사이를 잇는 "백플레인(Backplane)" 가상 참가자인지 판정.
+ *
+ * Pexip은 회의가 여러 노드에 분산되면 노드 간 미디어를 잇기 위한 가상 connection을
+ * 일반 participant 레코드처럼 표기한다. 이는 사람이 아닌 시스템 link이므로
+ * 동시 접속 / 고유 참가자 수 산출에서는 제외해야 정확한 사용량이 나온다.
+ *
+ * Pexip 버전·구성에 따라 표기가 다양하므로, 다음 중 하나라도 해당되면 백플레인으로 본다.
+ *  - display_name 또는 service_name에 "backplane" / "cascade" 키워드 포함 (대소문자 무시)
+ *  - service_type이 "gateway"/"backplane"/"cascade"로 시작
+ *  - protocol이 "API"인데 display_name이 비어 있거나 SIP URI 형태("…@…")만 있는 경우
+ *    (실 사용자 기기는 거의 항상 표시 이름이 채워짐)
+ *
+ * 보수적으로 패턴 매칭만 사용하므로 false negative보다 false positive를 더 경계한다.
+ * 분명한 패턴에만 true를 반환.
+ */
+export function isBackplaneParticipant(p: PexipParticipant): boolean {
+  const dn = (p.display_name || "").toLowerCase().trim();
+  const sn = (p.service_name || "").toLowerCase();
+  const st = (p.service_type || "").toLowerCase();
+  const proto = (p.protocol || "").toLowerCase();
+
+  if (dn.includes("backplane") || dn.includes("[cascade]") || dn.includes("(cascade)")) return true;
+  if (sn.includes("backplane") || sn.includes("cascade-link")) return true;
+  if (st === "backplane" || st === "cascade" || st.startsWith("backplane")) return true;
+
+  // protocol === "api" 이면서 display_name이 비어 있거나 순수 SIP URI 형태만 있을 때
+  // → 사람 참여 가능성이 매우 낮아 백플레인/시스템 connection으로 간주.
+  if (proto === "api") {
+    if (!dn) return true;
+    if (/^[^\s@]+@[^\s@]+$/.test(dn)) return true;
+  }
+
   return false;
 }
 
