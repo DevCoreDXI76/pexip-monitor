@@ -16,6 +16,7 @@ import {
   Shield,
   Wifi,
   List,
+  Layers,
 } from "lucide-react";
 import {
   formatDuration,
@@ -26,6 +27,7 @@ import {
   parsePexipUtcDate,
 } from "@/lib/pexip";
 import type { CompanyStat, PexipConfig, PexipParticipant } from "@/lib/types";
+import type { MergedConference } from "@/lib/merge";
 
 interface Props {
   stat: CompanyStat;
@@ -93,14 +95,14 @@ function ParticipantRow({ participant }: { participant: PexipParticipant }) {
   );
 }
 
-// 회의 1건 아코디언 행
+// 회의 1건 아코디언 행 (카스케이딩 병합된 회의 = MergedConference 1건)
 function ConferenceRow({
   conf,
   index,
   pexipConfig,
   conferenceListEndpointUsed,
 }: {
-  conf: CompanyStat["conferences"][0];
+  conf: MergedConference;
   index: number;
   pexipConfig: PexipConfig;
   conferenceListEndpointUsed: string;
@@ -110,22 +112,35 @@ function ConferenceRow({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  const mergedParticipants =
-    conf.participants.length > 0 ? conf.participants : (loadedParticipants ?? []);
-  const canLoadDetail = Boolean(conf.id);
-  const hasNoParticipantRows = conf.participants.length === 0 && mergedParticipants.length === 0;
+  const isCascade = conf.cascadeCount > 1;
+  // 병합 결과는 자체 participants 배열을 들고 있지 않으므로 항상 상세 조회로 채운다.
+  const mergedParticipants = loadedParticipants ?? [];
+  const sourceIds = conf.sources.map((s) => s.id).filter((id): id is string => Boolean(id));
+  const canLoadDetail = sourceIds.length > 0;
+  const hasNoParticipantRows = mergedParticipants.length === 0;
   const showLoadDetailUi = hasNoParticipantRows && canLoadDetail;
 
   async function handleLoadParticipants() {
     setDetailError(null);
     setDetailLoading(true);
     try {
-      const list = await fetchParticipantsForConference(
-        pexipConfig,
-        conferenceListEndpointUsed,
-        conf.id
+      // 카스케이딩으로 분산된 모든 노드의 참가자를 병합 후 id 기준 중복 제거
+      const lists = await Promise.all(
+        sourceIds.map((id) =>
+          fetchParticipantsForConference(pexipConfig, conferenceListEndpointUsed, id)
+        )
       );
-      setLoadedParticipants(list);
+      const seen = new Set<string>();
+      const combined: PexipParticipant[] = [];
+      for (const list of lists) {
+        for (const p of list) {
+          const key = p.id || `${p.display_name}|${participantJoinIso(p) ?? ""}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          combined.push(p);
+        }
+      }
+      setLoadedParticipants(combined);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "참가자 조회에 실패했습니다.";
       setDetailError(msg);
@@ -143,10 +158,23 @@ function ConferenceRow({
         <span className="text-xs text-gray-400 w-5 text-right flex-shrink-0">{index + 1}</span>
         <Video size={14} className="text-blue-400 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-800 truncate">{conf.name}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-gray-800 truncate">
+              {conf.service_name || "(이름 없음)"}
+            </p>
+            {isCascade && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 flex-shrink-0"
+                title={`${conf.cascadeCount}개의 Conferencing Node 레코드가 하나의 회의로 병합되었습니다`}
+              >
+                <Layers size={9} />
+                {conf.cascadeCount}개 노드 병합
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap gap-3 text-xs text-gray-400 mt-0.5">
             <span>시작: {formatDateTime(conf.start_time)}</span>
-            <span>종료: {formatDateTime(conf.end_time)}</span>
+            <span>종료: {conf.end_time ? formatDateTime(conf.end_time) : "진행 중"}</span>
             <span className="flex items-center gap-1">
               <Clock size={10} />
               {formatDuration(conf.duration ?? 0)}
@@ -156,7 +184,7 @@ function ConferenceRow({
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="flex items-center gap-1 text-xs text-gray-500">
             <Users size={12} />
-            {(conf.participants.length || conf.participant_count)}명
+            {(mergedParticipants.length || conf.participant_count)}명
           </span>
           {expanded ? (
             <ChevronUp size={16} className="text-gray-400" />
@@ -184,6 +212,13 @@ function ConferenceRow({
               {loadedParticipants === null && conf.participant_count > 0 && (
                 <p className="text-xs text-gray-500 text-center leading-relaxed">
                   참여 인원 {conf.participant_count}명(회의 메타데이터 기준)입니다.
+                  {isCascade && (
+                    <>
+                      <br />
+                      이 회의는 {conf.cascadeCount}개의 Conferencing Node에 분산되어 있어,
+                      모든 노드의 참가자를 합쳐서 보여드립니다.
+                    </>
+                  )}
                   <br />
                   아래 버튼을 누르면 이 회의의 참가자 상세를 불러옵니다.
                 </p>
@@ -230,6 +265,29 @@ function ConferenceRow({
               참여자 정보가 없습니다.
             </p>
           )}
+
+          {isCascade && (
+            <details className="pt-1">
+              <summary className="text-[11px] text-gray-400 hover:text-purple-600 cursor-pointer select-none">
+                병합된 원본 레코드 {conf.cascadeCount}건 보기
+              </summary>
+              <ul className="mt-2 space-y-1">
+                {conf.sources.map((s) => (
+                  <li
+                    key={s.id}
+                    className="text-[11px] text-gray-500 bg-white border border-gray-100 rounded px-2 py-1 flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate" title={s.name}>
+                      {s.name}
+                    </span>
+                    <span className="tabular-nums text-gray-400 flex-shrink-0">
+                      {formatDateTime(s.start_time)} · {s.participant_count}명
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
     </div>
@@ -242,9 +300,11 @@ export default function MeetingModal({
   conferenceListEndpointUsed,
   onClose,
 }: Props) {
-  const totalMeetings = stat.conferences.length;
-  const avgDuration = totalMeetings > 0
-    ? Math.round(stat.totalDuration / totalMeetings)
+  // 카스케이딩 병합된 회의를 표시. (raw stat.conferences는 동일 회의가
+  // 여러 Conferencing Node 레코드로 쪼개져 있어 중복으로 보일 수 있다.)
+  const meetings = stat.mergedConferences;
+  const avgDuration = stat.meetingCount > 0
+    ? Math.round(stat.totalDuration / stat.meetingCount)
     : 0;
 
   return (
@@ -291,8 +351,8 @@ export default function MeetingModal({
 
         {/* 회의 목록 (스크롤 영역) */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-          {stat.conferences.length > 0 ? (
-            stat.conferences
+          {meetings.length > 0 ? (
+            [...meetings]
               .sort(
                 (a, b) =>
                   parsePexipUtcDate(b.start_time).getTime() -
@@ -300,7 +360,7 @@ export default function MeetingModal({
               )
               .map((conf, i) => (
                 <ConferenceRow
-                  key={conf.id}
+                  key={`${conf.service_name}-${conf.start_time}-${i}`}
                   conf={conf}
                   index={i}
                   pexipConfig={pexipConfig}
